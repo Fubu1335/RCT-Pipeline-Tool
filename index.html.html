@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCT Pipeline — Reliant Care Transport</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --navy:#2A3641;--blue:#267FB6;--red:#D13527;--green:#059669;
+    --bg:#F5F6F8;--surface:#FFFFFF;--border:#E2E5EA;--border-strong:#C8CDD5;
+    --text:#1A2330;--text-2:#5A6475;--text-3:#8E97A5;
+    --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;
+    --radius:8px;--radius-lg:12px;
+  }
+  body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
+
+  /* PIN SCREEN */
+  .pin-screen{position:fixed;inset:0;background:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;gap:28px}
+  .pin-screen.hidden{display:none}
+  .pin-logo{color:#fff;font-size:20px;font-weight:600;letter-spacing:-.01em;text-align:center}
+  .pin-logo span{color:var(--blue)}
+  .pin-logo small{display:block;font-size:12px;font-weight:400;color:rgba(255,255,255,.4);margin-top:4px;font-style:italic}
+  .pin-box{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:32px 36px;display:flex;flex-direction:column;align-items:center;gap:20px;min-width:280px}
+  .pin-label{color:rgba(255,255,255,.6);font-size:13px;font-weight:500;text-align:center}
+  .pin-dots{display:flex;gap:12px}
+  .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.3);transition:all .15s}
+  .pin-dot.filled{background:var(--blue);border-color:var(--blue)}
+  .pin-dot.error{background:var(--red);border-color:var(--red)}
+  .pin-keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%}
+  .pin-key{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:18px;font-weight:500;font-family:var(--font);padding:14px;cursor:pointer;transition:all .12s;text-align:center}
+  .pin-key:hover{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.25)}
+  .pin-key:active{transform:scale(.95)}
+  .pin-key.wide{grid-column:span 2;font-size:13px;color:rgba(255,255,255,.5)}
+  .pin-key.action{background:var(--blue);border-color:var(--blue)}
+  .pin-key.action:hover{background:#1e6fa0}
+  .pin-error{color:#FCA5A5;font-size:12px;min-height:16px;text-align:center}
+
+  /* TOP BAR */
+  .topbar{background:var(--navy);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .topbar-left{display:flex;align-items:center;gap:12px}
+  .logo{color:#fff;font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .logo span{color:var(--blue);font-weight:400}
+  .divider-v{width:1px;height:20px;background:rgba(255,255,255,.2)}
+  .tagline{color:rgba(255,255,255,.5);font-size:12px;font-style:italic}
+  .topbar-right{display:flex;align-items:center;gap:8px}
+  .tab-btn{background:transparent;border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.7);border-radius:var(--radius);padding:5px 14px;font-size:12px;font-family:var(--font);cursor:pointer;transition:all .15s;font-weight:500}
+  .tab-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}
+  .tab-btn:hover:not(.active){border-color:rgba(255,255,255,.45);color:#fff}
+  .sync-indicator{display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.5)}
+  .sync-dot{width:7px;height:7px;border-radius:50%;background:#6EE7B7;flex-shrink:0}
+  .sync-dot.syncing{background:#FCD34D;animation:pulse 1s infinite}
+  .sync-dot.error{background:#FCA5A5}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* VIEWS */
+  .view{display:none;flex:1;flex-direction:column;overflow:hidden}
+  .view.active{display:flex}
+
+  /* LOADING */
+  .loading-overlay{position:fixed;inset:0;background:rgba(245,246,248,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:14px}
+  .loading-overlay.hidden{display:none}
+  .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+  .loading-text{font-size:13px;color:var(--text-2)}
+
+  /* TOAST */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:9px 18px;border-radius:var(--radius);font-size:13px;transition:transform .25s;z-index:600;white-space:nowrap}
+  .toast.show{transform:translateX(-50%) translateY(0)}
+  .toast.error{background:var(--red)}
+
+  /* PIPELINE TOOLBAR */
+  .pipeline-toolbar{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;gap:12px;flex-wrap:wrap}
+  .stats-row{display:flex;gap:6px;flex-wrap:wrap}
+  .stat-pill{background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+  .stat-pill strong{font-weight:600;color:var(--text)}
+  .add-btn{background:var(--navy);color:#fff;border:none;border-radius:var(--radius);padding:7px 16px;font-size:13px;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;transition:background .15s;flex-shrink:0}
+  .add-btn:hover{background:#1e2a34}
+
+  /* ADD FORM */
+  .add-form-wrap{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 20px;flex-shrink:0}
+  .add-form-inner{max-width:700px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}
+  .add-form-inner .field{display:flex;flex-direction:column;gap:4px}
+  .add-form-inner label{font-size:11px;font-weight:500;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+  .fi{border:1px solid var(--border-strong);border-radius:var(--radius);padding:7px 10px;font-size:13px;font-family:var(--font);color:var(--text);background:var(--bg);outline:none}
+  .fi:focus{border-color:var(--blue);background:#fff}
+  .add-actions{display:flex;gap:6px}
+  .btn-confirm{background:var(--blue);color:#fff;border:none;border-radius:var(--radius);padding:7px 14px;font-size:13px;font-family:var(--font);cursor:pointer;font-weight:500;white-space:nowrap}
+  .btn-cancel{background:transparent;color:var(--text-2);border:1px solid var(--border-strong);border-radius:var(--radius);padding:7px 12px;font-size:13px;font-family:var(--font);cursor:pointer}
+
+  /* BOARD */
+  .board{display:flex;flex:1;overflow-x:auto;overflow-y:hidden;align-items:stretch}
+  .col{min-width:190px;flex:1;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+  .col:last-child{border-right:none}
+  .col-accent{height:3px;flex-shrink:0}
+  .col-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .col-label{font-size:11px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em}
+  .col-count{font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 7px;color:var(--text-2);font-weight:500}
+  .col-body{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+
+  /* CARD */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:10px 11px;cursor:pointer;transition:border-color .15s,transform .1s;position:relative}
+  .card:hover{border-color:var(--blue);transform:translateY(-1px)}
+  .card-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+  .card-sc{font-size:11px;color:var(--text-2);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;letter-spacing:.02em}
+  .badge-uber{background:#E8F4FB;color:#1565A0}
+  .badge-door{background:#E8F5EF;color:#1B5E35}
+  .badge-parent{background:#FEF3E2;color:#7B4A00}
+  .card-age{font-size:10px;color:var(--text-3);margin-top:6px}
+  .card-flag{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--red)}
+
+  /* STAGE ACCENTS */
+  .acc-inquiry .col-accent{background:#267FB6}
+  .acc-addresses .col-accent{background:#7C3AED}
+  .acc-quote .col-accent{background:#D97706}
+  .acc-draftsdr .col-accent{background:#DB2777}
+  .acc-approval .col-accent{background:#DC2626}
+  .acc-approved .col-accent{background:#059669}
+  .acc-assigned .col-accent{background:#2A3641}
+  .card-border-inquiry{border-left:3px solid #267FB6}
+  .card-border-addresses{border-left:3px solid #7C3AED}
+  .card-border-quote{border-left:3px solid #D97706}
+  .card-border-draftsdr{border-left:3px solid #DB2777}
+  .card-border-approval{border-left:3px solid #DC2626}
+  .card-border-approved{border-left:3px solid #059669}
+  .card-border-assigned{border-left:3px solid #2A3641}
+
+  /* DRAWER */
+  .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;display:none}
+  .drawer-overlay.open{display:flex;align-items:flex-start;justify-content:flex-end}
+  .drawer{background:var(--surface);width:360px;height:100vh;overflow-y:auto;border-left:1px solid var(--border-strong);display:flex;flex-direction:column}
+  .drawer-top{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1}
+  .drawer-title{font-size:15px;font-weight:600;color:var(--text)}
+  .close-btn{background:var(--bg);border:1px solid var(--border);width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-2);font-size:16px;line-height:1}
+  .close-btn:hover{background:var(--border)}
+  .drawer-body{padding:16px 18px;display:flex;flex-direction:column;gap:14px;flex:1}
+  .d-field{display:flex;flex-direction:column;gap:4px}
+  .d-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)}
+  .d-input{border:1px solid var(--border-strong);border-radius:var(--radius);padding:7px 10px;font-size:13px;font-family:var(--font);color:var(--text);background:var(--bg);outline:none;width:100%}
+  .d-input:focus{border-color:var(--blue);background:#fff}
+  textarea.d-input{resize:vertical;min-height:80px;line-height:1.5}
+  .d-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .drawer-footer{padding:14px 18px;border-top:1px solid var(--border);display:flex;gap:8px;position:sticky;bottom:0;background:var(--surface)}
+  .btn-save{background:var(--navy);color:#fff;border:none;border-radius:var(--radius);padding:8px 18px;font-size:13px;font-family:var(--font);cursor:pointer;font-weight:500;flex:1;transition:background .15s}
+  .btn-save:hover{background:#1e2a34}
+  .btn-save:disabled{opacity:.5;cursor:not-allowed}
+  .btn-delete{background:transparent;color:var(--red);border:1px solid rgba(209,53,39,.3);border-radius:var(--radius);padding:8px 14px;font-size:13px;font-family:var(--font);cursor:pointer}
+  .btn-delete:hover{background:#FEF2F2;border-color:var(--red)}
+  .d-meta{font-size:11px;color:var(--text-3)}
+  .approved-note{background:#F0FDF4;border:1px solid #BBF7D0;border-radius:var(--radius);padding:8px 12px;font-size:12px;color:#166534;display:flex;align-items:flex-start;gap:6px}
+
+  /* ROSTER */
+  .roster-toolbar{padding:14px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;flex-wrap:wrap;gap:10px}
+  .roster-title{font-size:14px;font-weight:600;color:var(--text)}
+  .roster-sub{font-size:12px;color:var(--text-2);margin-top:1px}
+  .export-btn{background:var(--surface);color:var(--navy);border:1px solid var(--border-strong);border-radius:var(--radius);padding:7px 16px;font-size:13px;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;transition:all .15s}
+  .export-btn:hover{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .roster-body{flex:1;overflow:auto;padding:16px 20px}
+  .roster-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--text-3);gap:8px;text-align:center}
+  .roster-empty p{font-size:13px}
+  .roster-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;font-size:13px}
+  .roster-table th{background:var(--navy);color:rgba(255,255,255,.85);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:10px 12px;text-align:left;white-space:nowrap}
+  .roster-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text)}
+  .roster-table tr:last-child td{border-bottom:none}
+  .roster-table tr:hover td{background:#F8FAFC}
+  .muted{color:var(--text-2)}
+  .mono{font-family:var(--mono);font-size:12px}
+
+  @media(max-width:600px){
+    .col{min-width:160px}.drawer{width:100vw}
+    .add-form-inner{grid-template-columns:1fr 1fr}
+    .add-form-inner .field:nth-child(3){grid-column:1/-1}
+    .add-actions{grid-column:1/-1}.tagline{display:none}
+    .pin-box{min-width:240px;padding:24px 20px}
+  }
+</style>
+</head>
+<body>
+
+<!-- PIN SCREEN -->
+<div class="pin-screen" id="pin-screen">
+  <div class="pin-logo">
+    Reliant Care <span>Transport</span>
+    <small>Because Every Ride Matters</small>
+  </div>
+  <div class="pin-box">
+    <div class="pin-label">Enter your PIN to access the pipeline</div>
+    <div class="pin-dots">
+      <div class="pin-dot" id="dot-0"></div>
+      <div class="pin-dot" id="dot-1"></div>
+      <div class="pin-dot" id="dot-2"></div>
+      <div class="pin-dot" id="dot-3"></div>
+    </div>
+    <div class="pin-keypad">
+      <button class="pin-key" onclick="pinPress('1')">1</button>
+      <button class="pin-key" onclick="pinPress('2')">2</button>
+      <button class="pin-key" onclick="pinPress('3')">3</button>
+      <button class="pin-key" onclick="pinPress('4')">4</button>
+      <button class="pin-key" onclick="pinPress('5')">5</button>
+      <button class="pin-key" onclick="pinPress('6')">6</button>
+      <button class="pin-key" onclick="pinPress('7')">7</button>
+      <button class="pin-key" onclick="pinPress('8')">8</button>
+      <button class="pin-key" onclick="pinPress('9')">9</button>
+      <button class="pin-key wide" onclick="pinClear()">Clear</button>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay hidden" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Connecting to Google Sheets…</div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">Reliant Care <span>Transport</span></div>
+    <div class="divider-v"></div>
+    <div class="tagline">Because Every Ride Matters</div>
+  </div>
+  <div class="topbar-right">
+    <div class="sync-indicator"><div class="sync-dot" id="sync-dot"></div><span id="sync-label">Connecting…</span></div>
+    <div class="divider-v"></div>
+    <button class="tab-btn active" onclick="switchView('pipeline')">Pipeline</button>
+    <button class="tab-btn" onclick="switchView('roster')" id="roster-tab">Roster</button>
+  </div>
+</div>
+
+<!-- PIPELINE VIEW -->
+<div class="view active" id="view-pipeline">
+  <div class="pipeline-toolbar">
+    <div class="stats-row" id="stats-row"></div>
+    <button class="add-btn" onclick="toggleAddForm()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+      New inquiry
+    </button>
+  </div>
+  <div id="add-form-area"></div>
+  <div class="board" id="board"></div>
+</div>
+
+<!-- ROSTER VIEW -->
+<div class="view" id="view-roster">
+  <div class="roster-toolbar">
+    <div>
+      <div class="roster-title">Approved Client Roster</div>
+      <div class="roster-sub">Auto-populated when SDR is approved · Synced live to Google Sheets</div>
+    </div>
+    <button class="export-btn" onclick="exportCSV()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/><polyline points="5 7 8 10 11 7"/><line x1="8" y1="2" x2="8" y2="10"/></svg>
+      Export to Excel (.csv)
+    </button>
+  </div>
+  <div class="roster-body" id="roster-body"></div>
+</div>
+
+<!-- DRAWER -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer(event)">
+  <div class="drawer" id="drawer" onclick="event.stopPropagation()"></div>
+</div>
+
+<script>
+// ── CONFIG ──
+const SCRIPT_URL='https://script.google.com/macros/s/AKfycbwIC3hPk93Z1-KhC8bh8dqOPDwZ9zk7h1O_ZXWcH7p3ApZ6skhO5IYBcKNfo8h4V-8vOw/exec';
+const CORRECT_PIN='3535';
+const SESSION_KEY='rct_auth';
+
+const STAGES=[
+  {id:'inquiry',label:'Inquiry',cls:'acc-inquiry'},
+  {id:'addresses',label:'Addresses & schedule',cls:'acc-addresses'},
+  {id:'quote',label:'Rate quote given',cls:'acc-quote'},
+  {id:'draftsdr',label:'Draft SDR',cls:'acc-draftsdr'},
+  {id:'approval',label:'Draft approval',cls:'acc-approval'},
+  {id:'approved',label:'Approved SDR',cls:'acc-approved'},
+  {id:'assigned',label:'Driver assigned',cls:'acc-assigned'},
+];
+const PROGRAMS=['Uber/Lyft','Dedicated driver','Parent driver'];
+const ROSTER_STAGES=['approved','assigned'];
+let clients=[],nextId=1,openId=null,showingAdd=false,currentView='pipeline',isSaving=false;
+
+// ── PIN ──
+let pinEntry='';
+function pinPress(d){
+  if(pinEntry.length>=4) return;
+  pinEntry+=d;
+  updateDots();
+  if(pinEntry.length===4) setTimeout(checkPin,120);
+}
+function pinClear(){pinEntry='';updateDots(false);document.getElementById('pin-error').textContent='';}
+function updateDots(err=false){
+  for(let i=0;i<4;i++){
+    const dot=document.getElementById('dot-'+i);
+    dot.className='pin-dot'+(i<pinEntry.length?' filled':'')+(err?' error':'');
+  }
+}
+function checkPin(){
+  if(pinEntry===CORRECT_PIN){
+    sessionStorage.setItem(SESSION_KEY,'1');
+    document.getElementById('pin-screen').classList.add('hidden');
+    document.getElementById('loading').classList.remove('hidden');
+    fetchClients();
+  } else {
+    updateDots(true);
+    document.getElementById('pin-error').textContent='Incorrect PIN — try again';
+    setTimeout(()=>{pinEntry='';updateDots(false);document.getElementById('pin-error').textContent='';},1000);
+  }
+}
+// Check if already authenticated this session
+if(sessionStorage.getItem(SESSION_KEY)==='1'){
+  document.getElementById('pin-screen').classList.add('hidden');
+  document.getElementById('loading').classList.remove('hidden');
+}
+
+// ── SYNC STATUS ──
+function setSyncing(){document.getElementById('sync-dot').className='sync-dot syncing';document.getElementById('sync-label').textContent='Syncing…';}
+function setSynced(){document.getElementById('sync-dot').className='sync-dot';document.getElementById('sync-label').textContent='Synced';}
+function setSyncError(){document.getElementById('sync-dot').className='sync-dot error';document.getElementById('sync-label').textContent='Offline';}
+
+// ── TOAST ──
+let toastTimer;
+function showToast(msg,isError=false){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast'+(isError?' error':'');
+  void t.offsetWidth;t.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+// ── GOOGLE SHEETS ──
+async function fetchClients(){
+  setSyncing();
+  try{
+    const res=await fetch(SCRIPT_URL+'?t='+Date.now());
+    const json=await res.json();
+    if(json.status==='ok'){
+      clients=json.data.filter(r=>r.id).map(r=>({
+        id:Number(r.id),name:r.name||'',sc:r.sc||'',agency:r.agency||'',
+        phone:r.phone||'',email:r.email||'',program:r.program||'Dedicated driver',
+        stage:r.stage||'inquiry',added:r.added||new Date().toISOString().slice(0,10),
+        notes:r.notes||'',from:r.from||'',to:r.to||'',freq:r.freq||'',
+        times:r.times||'',quote:r.quote||'',driver:r.driver||''
+      }));
+      if(clients.length) nextId=Math.max(...clients.map(c=>c.id))+1;
+      setSynced();showToast('Loaded from Google Sheets ✓');
+    }
+  }catch(e){
+    setSyncError();showToast('Could not reach Google Sheets — working offline',true);
+    loadLocal();
+  }
+  document.getElementById('loading').classList.add('hidden');
+  renderBoard();updateRosterTab();
+}
+
+async function saveClient(c){
+  setSyncing();saveLocal();
+  try{
+    await fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'save',client:c})});
+    setSynced();showToast('Saved ✓');
+  }catch(e){setSyncError();showToast('Saved locally — Sheets unreachable',true);}
+}
+
+async function deleteClientRemote(c){
+  setSyncing();saveLocal();
+  try{
+    await fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify({action:'delete',client:c})});
+    setSynced();showToast('Deleted ✓');
+  }catch(e){setSyncError();showToast('Deleted locally — Sheets unreachable',true);}
+}
+
+// ── LOCAL FALLBACK ──
+function saveLocal(){localStorage.setItem('rct_v2',JSON.stringify(clients));localStorage.setItem('rct_nid',nextId);}
+function loadLocal(){
+  try{const d=localStorage.getItem('rct_v2');const n=localStorage.getItem('rct_nid');if(d)clients=JSON.parse(d);if(n)nextId=parseInt(n);}catch(e){}
+}
+
+// ── HELPERS ──
+function daysSince(d){return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+function badge(p){
+  if(p==='Uber/Lyft')return'<span class="badge badge-uber">Uber/Lyft</span>';
+  if(p==='Dedicated driver')return'<span class="badge badge-door">Dedicated driver</span>';
+  return'<span class="badge badge-parent">Parent driver</span>';
+}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ── VIEWS ──
+function switchView(v){
+  currentView=v;
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  document.querySelectorAll('.tab-btn')[v==='pipeline'?0:1].classList.add('active');
+  if(v==='roster')renderRoster();
+}
+
+// ── STATS ──
+function renderStats(){
+  const tot=clients.length,prog=clients.filter(c=>!ROSTER_STAGES.includes(c.stage)).length,
+    pend=clients.filter(c=>c.stage==='approval').length,done=clients.filter(c=>c.stage==='assigned').length;
+  document.getElementById('stats-row').innerHTML=`
+    <div class="stat-pill"><strong>${tot}</strong> total</div>
+    <div class="stat-pill"><strong>${prog}</strong> in progress</div>
+    ${pend?`<div class="stat-pill" style="border-color:#FCA5A5;background:#FEF2F2"><strong style="color:var(--red)">${pend}</strong><span style="color:#DC2626"> awaiting approval</span></div>`:''}
+    <div class="stat-pill"><strong>${done}</strong> active clients</div>`;
+}
+
+// ── BOARD ──
+function renderBoard(){
+  renderStats();
+  document.getElementById('board').innerHTML=STAGES.map(s=>{
+    const cards=clients.filter(c=>c.stage===s.id);
+    return`<div class="col ${s.cls}">
+      <div class="col-accent"></div>
+      <div class="col-head"><span class="col-label">${s.label}</span><span class="col-count">${cards.length}</span></div>
+      <div class="col-body">${cards.map(c=>{
+        const age=daysSince(c.added),urgent=age>14&&!ROSTER_STAGES.includes(c.stage);
+        return`<div class="card card-border-${s.id}" onclick="openDrawer(${c.id})">
+          ${urgent?'<div class="card-flag" title="14+ days — follow up"></div>':''}
+          <div class="card-name">${esc(c.name)}</div>
+          <div class="card-sc">${esc(c.sc)}${c.agency?' — '+esc(c.agency):''}</div>
+          ${badge(c.program)}
+          <div class="card-age">${age}d in pipeline</div>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── ADD FORM ──
+function toggleAddForm(){
+  if(showingAdd){cancelAdd();return;}
+  showingAdd=true;
+  document.getElementById('add-form-area').innerHTML=`
+    <div class="add-form-wrap"><div class="add-form-inner">
+      <div class="field"><label>Client name</label><input class="fi" id="f-name" placeholder="First & last name"></div>
+      <div class="field"><label>Support coordinator</label><input class="fi" id="f-sc" placeholder="SC name"></div>
+      <div class="field"><label>Agency</label><input class="fi" id="f-agency" placeholder="Agency (optional)"></div>
+      <div class="add-actions">
+        <select class="fi" id="f-prog">${PROGRAMS.map(p=>`<option>${p}</option>`).join('')}</select>
+        <button class="btn-confirm" onclick="addClient()">Add</button>
+        <button class="btn-cancel" onclick="cancelAdd()">Cancel</button>
+      </div>
+    </div></div>`;
+  document.getElementById('f-name').focus();
+}
+function cancelAdd(){showingAdd=false;document.getElementById('add-form-area').innerHTML='';}
+async function addClient(){
+  const name=document.getElementById('f-name').value.trim();
+  if(!name){showToast('Please enter a client name',true);return;}
+  const c={id:nextId++,name,sc:document.getElementById('f-sc').value.trim(),
+    agency:document.getElementById('f-agency').value.trim(),phone:'',email:'',
+    program:document.getElementById('f-prog').value,stage:'inquiry',
+    added:new Date().toISOString().slice(0,10),notes:'',from:'',to:'',freq:'',times:'',quote:'',driver:''};
+  clients.unshift(c);cancelAdd();renderBoard();updateRosterTab();
+  await saveClient(c);
+}
+
+// ── DRAWER ──
+function openDrawer(id){
+  openId=id;const c=clients.find(x=>x.id===id);
+  const stageOpts=STAGES.map(s=>`<option value="${s.id}"${c.stage===s.id?' selected':''}>${s.label}</option>`).join('');
+  const isR=ROSTER_STAGES.includes(c.stage);
+  document.getElementById('drawer').innerHTML=`
+    <div class="drawer-top">
+      <span class="drawer-title">${esc(c.name)}</span>
+      <button class="close-btn" onclick="closeDrawerBtn()">×</button>
+    </div>
+    <div class="drawer-body">
+      ${isR?`<div class="approved-note"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 6 11 13 4"/></svg>This client appears on the Approved Roster.</div>`:''}
+      <div class="d-row">
+        <div class="d-field"><div class="d-label">Client name</div><input class="d-input" id="d-name" value="${esc(c.name)}"></div>
+        <div class="d-field"><div class="d-label">Program</div><select class="d-input" id="d-prog">${PROGRAMS.map(p=>`<option${c.program===p?' selected':''}>${p}</option>`).join('')}</select></div>
+      </div>
+      <div class="d-row">
+        <div class="d-field"><div class="d-label">Support coordinator</div><input class="d-input" id="d-sc" value="${esc(c.sc)}" placeholder="SC name"></div>
+        <div class="d-field"><div class="d-label">Agency</div><input class="d-input" id="d-agency" value="${esc(c.agency)}" placeholder="Agency"></div>
+      </div>
+      <div class="d-row">
+        <div class="d-field"><div class="d-label">Phone</div><input class="d-input" id="d-phone" value="${esc(c.phone)}" placeholder="201-555-0000"></div>
+        <div class="d-field"><div class="d-label">Email</div><input class="d-input" id="d-email" value="${esc(c.email)}" placeholder="email@example.com"></div>
+      </div>
+      <div class="d-field"><div class="d-label">Pipeline stage</div><select class="d-input" id="d-stage">${stageOpts}</select></div>
+      <div class="d-field"><div class="d-label">Pickup address (from)</div><input class="d-input" id="d-from" value="${esc(c.from)}" placeholder="Full street address"></div>
+      <div class="d-field"><div class="d-label">Destination (to)</div><input class="d-input" id="d-to" value="${esc(c.to)}" placeholder="Address or location name"></div>
+      <div class="d-row">
+        <div class="d-field"><div class="d-label">Frequency</div><input class="d-input" id="d-freq" value="${esc(c.freq)}" placeholder="e.g. Mon / Wed / Fri"></div>
+        <div class="d-field"><div class="d-label">Pickup & return times</div><input class="d-input" id="d-times" value="${esc(c.times)}" placeholder="e.g. 9am / 3pm"></div>
+      </div>
+      <div class="d-field"><div class="d-label">Rate quote</div><input class="d-input" id="d-quote" value="${esc(c.quote)}" placeholder="e.g. $3.60/mi — $72/day RT"></div>
+      <div class="d-field"><div class="d-label">Driver assigned</div><input class="d-input" id="d-driver" value="${esc(c.driver)}" placeholder="Driver name"></div>
+      <div class="d-field"><div class="d-label">Notes</div><textarea class="d-input" id="d-notes">${esc(c.notes)}</textarea></div>
+      <div class="d-meta">Added ${c.added} · ${daysSince(c.added)} days in pipeline</div>
+    </div>
+    <div class="drawer-footer">
+      <button class="btn-save" id="save-btn" onclick="saveDrawer()">Save changes</button>
+      <button class="btn-delete" onclick="deleteClient(${c.id})">Remove</button>
+    </div>`;
+  document.getElementById('drawer-overlay').classList.add('open');
+}
+function closeDrawer(e){if(e.target===e.currentTarget)closeDrawerBtn();}
+function closeDrawerBtn(){document.getElementById('drawer-overlay').classList.remove('open');openId=null;}
+async function saveDrawer(){
+  if(isSaving)return;isSaving=true;
+  const btn=document.getElementById('save-btn');if(btn)btn.disabled=true;
+  const c=clients.find(x=>x.id===openId);
+  c.name=document.getElementById('d-name').value.trim()||c.name;
+  c.program=document.getElementById('d-prog').value;
+  c.sc=document.getElementById('d-sc').value.trim();
+  c.agency=document.getElementById('d-agency').value.trim();
+  c.phone=document.getElementById('d-phone').value.trim();
+  c.email=document.getElementById('d-email').value.trim();
+  c.stage=document.getElementById('d-stage').value;
+  c.from=document.getElementById('d-from').value.trim();
+  c.to=document.getElementById('d-to').value.trim();
+  c.freq=document.getElementById('d-freq').value.trim();
+  c.times=document.getElementById('d-times').value.trim();
+  c.quote=document.getElementById('d-quote').value.trim();
+  c.driver=document.getElementById('d-driver').value.trim();
+  c.notes=document.getElementById('d-notes').value.trim();
+  closeDrawerBtn();renderBoard();updateRosterTab();
+  await saveClient(c);isSaving=false;
+}
+async function deleteClient(id){
+  if(!confirm('Remove this client from the pipeline?'))return;
+  const c=clients.find(x=>x.id===id);
+  clients=clients.filter(x=>x.id!==id);
+  closeDrawerBtn();renderBoard();updateRosterTab();
+  await deleteClientRemote(c);
+}
+
+// ── ROSTER ──
+function getRoster(){return clients.filter(c=>ROSTER_STAGES.includes(c.stage));}
+function updateRosterTab(){
+  const n=getRoster().length;
+  document.getElementById('roster-tab').textContent='Roster'+(n?' ('+n+')':'');
+  if(currentView==='roster')renderRoster();
+}
+function renderRoster(){
+  const rc=getRoster(),body=document.getElementById('roster-body');
+  if(!rc.length){body.innerHTML=`<div class="roster-empty"><p>No approved clients yet.<br>Clients appear here automatically when their SDR is approved.</p></div>`;return;}
+  body.innerHTML=`<table class="roster-table"><thead><tr>
+    <th>#</th><th>Client</th><th>Program</th><th>Support coordinator</th><th>From</th><th>To</th><th>Schedule</th><th>Rate</th><th>Driver</th><th>Status</th>
+  </tr></thead><tbody>${rc.map((c,i)=>`<tr>
+    <td class="muted">${i+1}</td>
+    <td><strong>${esc(c.name)}</strong>${c.phone?`<br><span class="muted" style="font-size:11px">${esc(c.phone)}</span>`:''}</td>
+    <td>${badge(c.program)}</td>
+    <td>${esc(c.sc)||'—'}<br><span class="muted" style="font-size:11px">${esc(c.agency)||''}</span></td>
+    <td class="muted">${esc(c.from)||'—'}</td>
+    <td class="muted">${esc(c.to)||'—'}</td>
+    <td class="muted">${esc(c.freq)||'—'}${c.times?`<br>${esc(c.times)}`:''}</td>
+    <td class="mono">${esc(c.quote)||'—'}</td>
+    <td>${c.driver?esc(c.driver):'<span class="muted">Unassigned</span>'}</td>
+    <td><span class="badge ${c.stage==='assigned'?'badge-door':'badge-uber'}">${c.stage==='assigned'?'Active':'SDR approved'}</span></td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+// ── EXPORT CSV ──
+function exportCSV(){
+  const rc=getRoster();
+  if(!rc.length){showToast('No approved clients to export yet.',true);return;}
+  const h=['#','Client','Phone','Email','Program','Support coordinator','Agency','From','To','Frequency','Times','Rate quote','Driver','Status','Date added'];
+  const rows=rc.map((c,i)=>[i+1,c.name,c.phone,c.email,c.program,c.sc,c.agency,c.from,c.to,c.freq,c.times,c.quote,c.driver,c.stage==='assigned'?'Active':'SDR approved',c.added]);
+  const csv=[h,...rows].map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`RCT_Approved_Roster_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();showToast('Exported ✓');
+}
+
+// ── INIT ──
+if(sessionStorage.getItem(SESSION_KEY)==='1') fetchClients();
+</script>
+</body>
+</html>
